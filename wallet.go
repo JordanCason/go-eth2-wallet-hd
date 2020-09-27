@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"io/ioutil"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -429,6 +430,77 @@ func (w *wallet) Export(ctx context.Context, passphrase []byte) ([]byte, error) 
 	}
 
 	return ecodec.Encrypt(data, passphrase)
+}
+
+
+func (w *wallet) ImportFromDirectory(ctx context.Context, passphrase []byte, path string, store e2wtypes.Store, encryptor e2wtypes.Encryptor) error {
+	type walletExt struct {
+		Wallet   *wallet    `json:"wallet"`
+		Accounts []*account `json:"accounts"`
+	}
+
+	// test, _ := w.MarshalJSON()
+	// wallet := &wallet{}
+	// err := json.Unmarshal(test, wallet)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	ext := &walletExt{}
+	ext.Wallet = w
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for _, f := range files {
+		file, err := ioutil.ReadFile(path + "/" + f.Name())
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		acc := &account{}
+		err = json.Unmarshal(file, acc)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		ext.Accounts = append(ext.Accounts, acc)
+	}
+	// jsonbytes, _ := json.MarshalIndent(ext, "", "  ")
+	// fmt.Println(string(jsonbytes))
+	// ext := &walletExt{}
+	// if err := json.Unmarshal(data, ext); err != nil {
+	// 	return nil, err
+	// }
+
+	// ext.Wallet.mutex = new(sync.RWMutex)
+	// ext.Wallet.index = indexer.New()
+	// ext.Wallet.store = store
+	// ext.Wallet.encryptor = encryptor
+
+	// // See if the wallet already exists
+	// if _, err := OpenWallet(ctx, ext.Wallet.Name(), store, encryptor); err == nil {
+	// 	return fmt.Errorf("wallet %q already exists", ext.Wallet.Name())
+	// }
+
+	// Create the wallet
+	if err := ext.Wallet.storeWallet(); err != nil {
+		return fmt.Errorf("failed to store wallet %q", ext.Wallet.Name())
+	}
+
+	// Create the accounts
+	for _, acc := range ext.Accounts {
+		acc.wallet = ext.Wallet
+		acc.encryptor = encryptor
+		acc.mutex = new(sync.RWMutex)
+		ext.Wallet.index.Add(acc.id, acc.name)
+		if err := acc.storeAccount(); err != nil {
+			return fmt.Errorf("failed to store account %q", acc.Name())
+		}
+	}
+	// Store the index.
+
+	// return ext.Wallet, nil
+	return nil
 }
 
 // Import imports the entire wallet, protected by an additional passphrase.
